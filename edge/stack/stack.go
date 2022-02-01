@@ -3,9 +3,10 @@ package stack
 import (
 	"context"
 	"fmt"
-	"github.com/portainer/agent/edge/client"
 	"log"
 	"time"
+
+	"github.com/portainer/agent/edge/client"
 
 	"github.com/portainer/agent"
 	"github.com/portainer/agent/exec"
@@ -15,13 +16,14 @@ import (
 type edgeStackID int
 
 type edgeStack struct {
-	ID         edgeStackID
-	Name       string
-	Version    int
-	FileFolder string
-	FileName   string
-	Status     edgeStackStatus
-	Action     edgeStackAction
+	ID           edgeStackID
+	Name         string
+	Version      int
+	FileFolder   string
+	FileName     string
+	Status       edgeStackStatus
+	Action       edgeStackAction
+	ImageMapping map[string]string // a map of stackfile image to imageCache url(with sha)
 }
 
 type edgeStackStatus int
@@ -126,13 +128,14 @@ func (manager *StackManager) UpdateStacksStatus(stacks map[int]int) error {
 			fileName = fmt.Sprintf("%s.yml", stack.Name)
 		}
 
-		err = filesystem.WriteFile(folder, fileName, []byte(stackConfig.FileContent), 644)
+		err = filesystem.WriteFile(folder, fileName, []byte(stackConfig.FileContent), 0644)
 		if err != nil {
 			return err
 		}
 
 		stack.FileFolder = folder
 		stack.FileName = fileName
+		stack.ImageMapping = stackConfig.ImageMapping
 
 		manager.stacks[stack.ID] = stack
 
@@ -198,6 +201,14 @@ func (manager *StackManager) Start() error {
 				ctx := context.TODO()
 
 				if stack.Action == actionDeploy || stack.Action == actionUpdate {
+					for stackImage, cacheImage := range stack.ImageMapping {
+						//pull cache image
+						//push stackImage to docker
+						err := copyImage(ctx, cacheImage, stackImage)
+						if err != nil {
+							log.Panicf("[ERROR] copying image %s -> %s: %s", cacheImage, stackImage, err.Error())
+						}
+					}
 					manager.deployStack(ctx, stack, stackName, stackFileLocation)
 				} else if stack.Action == actionDelete {
 					manager.deleteStack(ctx, stack, stackName, stackFileLocation)
